@@ -8,12 +8,13 @@ import (
 )
 
 type TaskWarriorTask struct {
-	ID     int    `json:"id"`
-	End    string `json:"end"`
-	Title  string `json:"description"`
-	Status string `json:"status"`
-	Due    string `json:"due"`
-	Notes  string
+	ID      int    `json:"id"`
+	End     string `json:"end"`
+	Title   string `json:"description"`
+	Status  string `json:"status"`
+	Due     string `json:"due"`
+	Notes   string
+	Project string `json:"project,omitempty"`
 }
 
 type TaskWarriorClient struct {
@@ -70,7 +71,7 @@ func (t *TaskWarriorClient) AddTask(task TaskWarriorTask) (bool, error) {
 	}
 	for _, existingTask := range existingTasks {
 		if existingTask.Title == task.Title {
-			fmt.Printf("Task '%s' already exists in taskwarrior, skipping.\n", task.Title)
+			// fmt.Printf("Task '%s' already exists in taskwarrior, skipping.\n", task.Title)
 			return false, nil
 		}
 	}
