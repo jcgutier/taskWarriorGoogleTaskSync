@@ -44,7 +44,7 @@ func NewGoogleTasksClient() (*GoogleTasksService, error) {
 }
 
 func (c *GoogleTasksService) GetTaskLists(filter string) ([]*tasks.TaskList, error) {
-	r, err := c.Service.Tasklists.List().MaxResults(10).Do()
+	r, err := c.Service.Tasklists.List().Do()
 	if err != nil {
 		log.Fatalf("Unable to retrieve task lists. %v", err)
 	}
@@ -65,25 +65,15 @@ func (c *GoogleTasksService) GetTasks(taskListID string) ([]*tasks.Task, error) 
 	pageToken := ""
 	taskLists := []*tasks.TaskList{}
 	err := error(nil)
-
-	if taskListID == "" {
-		taskLists, err = c.GetTaskLists("")
-		if err != nil {
-			log.Fatalf("Unable to retrieve task lists. %v", err)
-			return nil, err
-		}
-	} else {
-		taskLists = []*tasks.TaskList{{Id: taskListID}}
+	taskLists, err = c.GetTaskLists(taskListID)
+	if err != nil {
+		log.Fatalf("Unable to retrieve task lists. %v", err)
+		return nil, err
 	}
 
-	# TODO test if this work with a single task list
-	for {
-		if err != nil {
-			log.Fatalf("Unable to retrieve task lists. %v", err)
-			return nil, err
-		}
-		for _, item := range taskLists {
-			r, err := c.Service.Tasks.List(item.Id).PageToken(pageToken).Do()
+	for _, item := range taskLists {
+		for {
+			r, err := c.Service.Tasks.List(item.Id).ShowCompleted(true).ShowDeleted(true).ShowHidden(true).PageToken(pageToken).Do()
 			if err != nil {
 				log.Fatalf("Unable to retrieve tasks for task list %s. %v", item.Title, err)
 				return nil, err
@@ -91,9 +81,9 @@ func (c *GoogleTasksService) GetTasks(taskListID string) ([]*tasks.Task, error) 
 			allTasks = append(allTasks, r.Items...)
 			// log.Printf("Tasks in list '%s': %d", item.Title, len(r.Items))
 			pageToken = r.NextPageToken
-		}
-		if pageToken == "" {
-			break
+			if pageToken == "" {
+				break
+			}
 		}
 	}
 	return allTasks, nil

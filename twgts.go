@@ -6,19 +6,20 @@ import (
 	"os/exec"
 	"strings"
 
-	googletasks "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/googleTasks"
+	taskssync "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/tasksSync"
 )
 
 func SyncGoogleTasks() {
-	googleTaskClient, err := googletasks.NewGoogleTasksClient()
-	if err != nil {
-		log.Fatalf("Failed to create Google Tasks client: %v", err)
+	syncTask := taskssync.NewTasksSync()
+	log.Printf("Retrieved %d tasks from Google Tasks.", len(syncTask.GoogleTasks))
+	log.Printf("Retrieved %d pending tasks from Taskwarrior.", len(syncTask.TaskWarriorTasks))
+
+	log.Printf("Google tasks: ")
+	for _, task := range syncTask.GoogleTasks {
+		log.Printf(" - %s (%s)", task.Title, task.Status)
 	}
-	googleTasks, err := googleTaskClient.GetTasks("")
-	if err != nil {
-		log.Fatalf("Failed to get Google Tasks: %v", err)
-	}
-	log.Printf("Retrieved %d tasks from Google Tasks.", len(googleTasks))
+
+	// TODO create logic for bidirectional sync
 }
 
 func main() {
