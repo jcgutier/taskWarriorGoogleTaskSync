@@ -3,6 +3,7 @@ package taskwarrior
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 )
@@ -18,6 +19,7 @@ type TaskWarriorTask struct {
 }
 
 type TaskWarriorClient struct {
+	DryRun bool
 }
 
 func (t *TaskWarriorClient) ListTasks() ([]TaskWarriorTask, error) {
@@ -89,4 +91,17 @@ func (t *TaskWarriorClient) AddTask(task TaskWarriorTask) (bool, error) {
 		return false, fmt.Errorf("failed to add task: %w", err)
 	}
 	return true, nil
+}
+
+func (t *TaskWarriorClient) CompleteTask(taskID int) error {
+	if t.DryRun {
+		log.Printf("[Dry Run] Would complete task with ID: %d", taskID)
+		return nil
+	}
+	cmd := exec.Command("task", fmt.Sprintf("%d", taskID), "done")
+	_, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to complete task: %w", err)
+	}
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	taskssync "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/tasksSync"
+	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/taskwarrior"
 )
 
 func SyncGoogleTasks() {
@@ -14,12 +15,52 @@ func SyncGoogleTasks() {
 	log.Printf("Retrieved %d tasks from Google Tasks.", len(syncTask.GoogleTasks))
 	log.Printf("Retrieved %d pending tasks from Taskwarrior.", len(syncTask.TaskWarriorTasks))
 
-	log.Printf("Google tasks: ")
-	for _, task := range syncTask.GoogleTasks {
-		log.Printf(" - %s (%s)", task.Title, task.Status)
+	// log.Printf("Google tasks: ")
+	// for _, task := range syncTask.GoogleTasks {
+	// 	log.Printf(" - %s (%s)", task.Title, task.Status)
+	// }
+
+	taskWarriorClient := taskwarrior.TaskWarriorClient{
+		DryRun: true,
 	}
 
 	// TODO create logic for bidirectional sync
+	for _, googleTask := range syncTask.GoogleTasks {
+		taskWarriorMatch := taskwarrior.TaskWarriorTask{}
+
+		for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
+			if googleTask.Title == taskWarriorTask.Title {
+				// log.Printf("Task '%s' exists in both Google Tasks and Taskwarrior.", googleTask.Title)
+				taskWarriorMatch = taskWarriorTask
+				break
+			}
+		}
+
+		switch googleTask.Status {
+		case "completed":
+			if taskWarriorMatch.Title != "" && taskWarriorMatch.ID != 0 {
+				// complete in taskwarrior
+				err := taskWarriorClient.CompleteTask(taskWarriorMatch.ID)
+				if err != nil {
+					log.Printf("Failed to complete '%s'(%d) in taskwarrior: %v", googleTask.Title, taskWarriorMatch.ID, err)
+				}
+			}
+		case "needsAction":
+			if taskWarriorMatch.Title != "" {
+				// log.Printf("Task '%s' already exists in Taskwarrior, skipping.\n", googleTask.Title)
+				continue
+			}
+			// add to taskwarrior
+			_, err := taskWarriorClient.AddTask(taskwarrior.TaskWarriorTask{
+				Title: googleTask.Title,
+				Notes: googleTask.Notes,
+				Due:   googleTask.Due,
+			})
+			if err != nil {
+				log.Printf("Failed to add '%s' with id '%s' and status '%s' to taskwarrior: %v", googleTask.Title, googleTask.Id, googleTask.Status, err)
+			}
+		}
+	}
 }
 
 func main() {
