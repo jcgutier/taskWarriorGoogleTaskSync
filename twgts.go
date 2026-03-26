@@ -1,19 +1,22 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
 
+	googletasks "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/googleTasks"
 	taskssync "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/tasksSync"
 	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/taskwarrior"
+	"google.golang.org/api/tasks/v1"
 )
 
 func SyncGoogleTasks() {
 	syncTask := taskssync.NewTasksSync()
 	log.Printf("Retrieved %d tasks from Google Tasks.", len(syncTask.GoogleTasks))
-	log.Printf("Retrieved %d pending tasks from Taskwarrior.", len(syncTask.TaskWarriorTasks))
+	log.Printf("Retrieved %d tasks from Task Warrior.", len(syncTask.TaskWarriorTasks))
 
 	// log.Printf("Google tasks: ")
 	// for _, task := range syncTask.GoogleTasks {
@@ -21,8 +24,10 @@ func SyncGoogleTasks() {
 	// }
 
 	taskWarriorClient := taskwarrior.TaskWarriorClient{
-		DryRun: true,
+		DryRun: false,
 	}
+
+	googleTasksClient, _ := googletasks.NewGoogleTasksClient()
 
 	// TODO create logic for bidirectional sync
 	for _, googleTask := range syncTask.GoogleTasks {
@@ -39,6 +44,7 @@ func SyncGoogleTasks() {
 		switch googleTask.Status {
 		case "completed":
 			if taskWarriorMatch.Title != "" && taskWarriorMatch.ID != 0 {
+				log.Printf("Task '%s' with due date %s is completed in Google Tasks but pending in Taskwarrior, completing it in Taskwarrior.\n", googleTask.Title, googleTask.Due)
 				// complete in taskwarrior
 				err := taskWarriorClient.CompleteTask(taskWarriorMatch.ID)
 				if err != nil {
@@ -59,6 +65,39 @@ func SyncGoogleTasks() {
 			if err != nil {
 				log.Printf("Failed to add '%s' with id '%s' and status '%s' to taskwarrior: %v", googleTask.Title, googleTask.Id, googleTask.Status, err)
 			}
+			log.Printf("Task %s added to taskwarrior", googleTask.Title)
+		}
+	}
+
+	for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
+		googleTaskMatch := &tasks.Task{}
+
+		for _, googleTask := range syncTask.GoogleTasks {
+			if taskWarriorTask.Title == googleTask.Title {
+				log.Printf("Task '%s' exists in both Taskwarrior and Google Tasks.\n", taskWarriorTask.Title)
+				googleTaskMatch = googleTask
+				break
+			}
+		}
+
+		if googleTaskMatch.Title == "" {
+			gTask := tasks.Task{
+				Title: taskWarriorTask.Title,
+				// TODO fix this due date format issue, and fix logging to include line of error
+				// Due:   taskWarriorTask.Due,
+			}
+			if taskWarriorTask.Project != "" {
+				gTask.Notes = fmt.Sprintf("project=%s", taskWarriorTask.Project)
+			}
+			log.Printf("Adding task '%s' to Google Tasks.\n", taskWarriorTask.Title)
+			isTaskAdded, err := googleTasksClient.AddTask(&gTask)
+			if err != nil {
+				log.Printf("Failed to add task '%s' to Google Tasks: %v", taskWarriorTask.Title, err)
+			}
+			if isTaskAdded {
+				log.Printf("Task '%s' added to Google Tasks.", taskWarriorTask.Title)
+			}
+			break
 		}
 	}
 }

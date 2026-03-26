@@ -89,6 +89,20 @@ func (c *GoogleTasksService) GetTasks(taskListID string) ([]*tasks.Task, error) 
 	return allTasks, nil
 }
 
+func (c *GoogleTasksService) AddTask(task *tasks.Task) (bool, error) {
+	isTaskAdded := false
+	tasksList, err := c.GetTaskLists("New")
+	if err != nil {
+		return false, fmt.Errorf("failed to get task lists: %w", err)
+	}
+	_, err = c.Service.Tasks.Insert(tasksList[0].Id, task).Do()
+	if err != nil {
+		return false, fmt.Errorf("failed to add task: %w", err)
+	}
+	isTaskAdded = true
+	return isTaskAdded, nil
+}
+
 func getClient(config *oauth2.Config) *http.Client {
 	// The file token.json stores the user's access and refresh tokens, and is
 	// created automatically when the authorization flow completes for the first

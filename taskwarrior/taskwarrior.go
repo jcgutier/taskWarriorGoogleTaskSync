@@ -73,16 +73,22 @@ func (t *TaskWarriorClient) AddTask(task TaskWarriorTask) (bool, error) {
 	}
 	for _, existingTask := range existingTasks {
 		if existingTask.Title == task.Title {
-			// fmt.Printf("Task '%s' already exists in taskwarrior, skipping.\n", task.Title)
+			log.Printf("Task '%s' already exists in taskwarrior, skipping.\n", task.Title)
 			return false, nil
 		}
 	}
 
 	execCommand := ""
 	if taskProject != "" {
-		execCommand = fmt.Sprintf("task add project:%s tags:GoogleTasks due:%s -- %s", taskProject, task.Due, task.Title)
+		execCommand = fmt.Sprintf("task add project:%s tags:GoogleTasks due:%s -- '%s'", taskProject, task.Due, task.Title)
 	} else {
-		execCommand = fmt.Sprintf("task add tags:GoogleTasks due:%s -- %s", task.Due, task.Title)
+		execCommand = fmt.Sprintf("task add tags:GoogleTasks due:%s -- '%s'", task.Due, task.Title)
+	}
+
+	if t.DryRun {
+		log.Printf("[Dry Run] Would add task: %s", task.Title)
+		log.Println(execCommand)
+		return false, nil
 	}
 
 	cmd := exec.Command("sh", "-c", execCommand)
