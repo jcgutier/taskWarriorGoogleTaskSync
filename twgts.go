@@ -6,16 +6,34 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/config"
 	googletasks "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/googleTasks"
 	taskssync "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/tasksSync"
 	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/taskwarrior"
 	"google.golang.org/api/tasks/v1"
 )
 
-func SyncGoogleTasks() {
-	syncTask := taskssync.NewTasksSync()
-	log.Printf("Retrieved %d tasks from Google Tasks.", len(syncTask.GoogleTasks))
+func SyncGoogleTasks(cfg *config.Config) {
+	syncTask, err := taskssync.NewTasksSync(cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize sync task: %v", err)
+	}
+
+	completedGTasks := 0
+	needActionGTasks := 0
+	for _, gTask := range syncTask.GoogleTasks {
+		if gTask.Status == "completed" {
+			completedGTasks++
+		} else if gTask.Status == "needsAction" {
+			needActionGTasks++
+		} else {
+			log.Printf("Google Task: %s, Status: %s, Due: %s", gTask.Title, gTask.Status, gTask.Due)
+		}
+	}
+
+	log.Printf("Retrieved %d tasks from Google Tasks (%d completed, %d needs action).", len(syncTask.GoogleTasks), completedGTasks, needActionGTasks)
 	log.Printf("Retrieved %d tasks from Task Warrior.", len(syncTask.TaskWarriorTasks))
 
 	// log.Printf("Google tasks: ")
@@ -24,23 +42,28 @@ func SyncGoogleTasks() {
 	// }
 
 	taskWarriorClient := taskwarrior.TaskWarriorClient{
-		DryRun: false,
+		DryRun: cfg.DryRun,
 	}
 
-	googleTasksClient, _ := googletasks.NewGoogleTasksClient()
+	googleTasksClient, err := googletasks.NewGoogleTasksClient(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create Google Tasks client: %v", err)
+	}
 
-	// TODO create logic for bidirectional sync
 	for _, googleTask := range syncTask.GoogleTasks {
 		taskWarriorMatch := taskwarrior.TaskWarriorTask{}
-
+		log.Printf("Processing Google Task: %s (Status: %s, Due: %s, ID: %s)", googleTask.Title, googleTask.Status, googleTask.Due, googleTask.Id)
 		for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
+			// TODO continue here
+			googleTaskDue, _ := time.Parse("2026-01-15T00:00:00.000Z", googleTask.Due)
+			taskWarriorTaskDue, _ := time.Parse("20060102T150405Z", taskWarriorTask.Due)
+			log.Println(googleTaskDue, taskWarriorTaskDue)
 			if googleTask.Title == taskWarriorTask.Title {
 				// log.Printf("Task '%s' exists in both Google Tasks and Taskwarrior.", googleTask.Title)
 				taskWarriorMatch = taskWarriorTask
 				break
 			}
 		}
-
 		switch googleTask.Status {
 		case "completed":
 			if taskWarriorMatch.Title != "" && taskWarriorMatch.ID != 0 {
@@ -67,6 +90,10 @@ func SyncGoogleTasks() {
 			}
 			log.Printf("Task %s added to taskwarrior", googleTask.Title)
 		}
+		if googleTask.Status == "needsAction" {
+			log.Printf("Google Task '%s' is pending, checking if it exists in Taskwarrior.", googleTask.Title)
+			break
+		}
 	}
 
 	for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
@@ -74,7 +101,7 @@ func SyncGoogleTasks() {
 
 		for _, googleTask := range syncTask.GoogleTasks {
 			if taskWarriorTask.Title == googleTask.Title {
-				log.Printf("Task '%s' exists in both Taskwarrior and Google Tasks.\n", taskWarriorTask.Title)
+				// log.Printf("Task '%s' exists in both Taskwarrior and Google Tasks.\n", taskWarriorTask.Title)
 				googleTaskMatch = googleTask
 				break
 			}
@@ -83,8 +110,15 @@ func SyncGoogleTasks() {
 		if googleTaskMatch.Title == "" {
 			gTask := tasks.Task{
 				Title: taskWarriorTask.Title,
-				// TODO fix this due date format issue, and fix logging to include line of error
-				// Due:   taskWarriorTask.Due,
+			}
+
+			if taskWarriorTask.Due != "" {
+				parsedDue, err := time.Parse("20060102T150405Z", taskWarriorTask.Due)
+				if err != nil {
+					log.Printf("Failed to parse due date '%s' for task '%s': %v", taskWarriorTask.Due, taskWarriorTask.Title, err)
+				} else {
+					gTask.Due = parsedDue.Format(time.RFC3339)
+				}
 			}
 			if taskWarriorTask.Project != "" {
 				gTask.Notes = fmt.Sprintf("project=%s", taskWarriorTask.Project)
@@ -97,14 +131,19 @@ func SyncGoogleTasks() {
 			if isTaskAdded {
 				log.Printf("Task '%s' added to Google Tasks.", taskWarriorTask.Title)
 			}
-			break
 		}
 	}
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	SyncGoogleTasks()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	SyncGoogleTasks(cfg)
 
 	// taskWarriorClient := taskwarrior.TaskWarriorClient{}
 	// twPendingTasks, err := taskWarriorClient.GetPendingTasks() // Just to demonstrate usage of the TaskwarriorClient struct

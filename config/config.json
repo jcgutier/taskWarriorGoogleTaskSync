@@ -1,0 +1,10 @@
+{
+  "googleCredentialsPath": "",
+  "googleTokenPath": "token.json",
+  "googleTaskListFilter": "Mis tareas",
+  "syncIntervalSeconds": 300,
+  "dryRun": false,
+  "metricsListenAddress": ":9090",
+  "backoffMaxAttempts": 5,
+  "backoffInitialDelaySeconds": 1
+}

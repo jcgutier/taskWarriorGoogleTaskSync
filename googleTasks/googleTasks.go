@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 
+	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/config"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
@@ -16,37 +16,45 @@ import (
 
 type GoogleTasksService struct {
 	Service *tasks.Service
+	Config  *config.Config
 }
 
-func NewGoogleTasksClient() (*GoogleTasksService, error) {
+func NewGoogleTasksClient(cfg *config.Config) (*GoogleTasksService, error) {
 	ctx := context.Background()
-	credetialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	log.Printf("Using credentials file: %s", credetialsFile)
-	if credetialsFile == "" {
-		log.Fatal("Environment variable GOOGLE_APPLICATION_CREDENTIALS is not set.")
+	credentialsFile := cfg.GoogleCredentialsPath
+	if credentialsFile == "" {
+		credentialsFile = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	}
-	b, err := os.ReadFile(credetialsFile)
-	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
+	if credentialsFile == "" {
+		return nil, fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS must be set either by env or config")
 	}
 
-	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, tasks.TasksScope)
+	b, err := os.ReadFile(credentialsFile)
 	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
+		return nil, fmt.Errorf("unable to read client secret file: %w", err)
 	}
-	client := getClient(config)
+
+	googleConfig, err := google.ConfigFromJSON(b, tasks.TasksScope)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
+	}
+	tokFile := cfg.GoogleTokenPath
+	if tokFile == "" {
+		tokFile = "token.json"
+	}
+
+	client := getClient(googleConfig, tokFile)
 	srv, err := tasks.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
-		log.Fatalf("Unable to retrieve tasks Client %v", err)
+		return nil, fmt.Errorf("unable to retrieve tasks client: %w", err)
 	}
-	return &GoogleTasksService{Service: srv}, nil
+	return &GoogleTasksService{Service: srv, Config: cfg}, nil
 }
 
 func (c *GoogleTasksService) GetTaskLists(filter string) ([]*tasks.TaskList, error) {
 	r, err := c.Service.Tasklists.List().Do()
 	if err != nil {
-		log.Fatalf("Unable to retrieve task lists. %v", err)
+		return nil, fmt.Errorf("unable to retrieve task lists: %w", err)
 	}
 	if filter != "" {
 		var filteredTaskLists []*tasks.TaskList
@@ -60,14 +68,15 @@ func (c *GoogleTasksService) GetTaskLists(filter string) ([]*tasks.TaskList, err
 	return r.Items, nil
 }
 
-func (c *GoogleTasksService) GetTasks(taskListID string) ([]*tasks.Task, error) {
+func (c *GoogleTasksService) GetTasks(taskListFilter string) ([]*tasks.Task, error) {
+	if taskListFilter == "" {
+		taskListFilter = c.Config.GoogleTaskListFilter
+	}
 	allTasks := []*tasks.Task{}
 	pageToken := ""
-	taskLists := []*tasks.TaskList{}
-	err := error(nil)
-	taskLists, err = c.GetTaskLists(taskListID)
+
+	taskLists, err := c.GetTaskLists(taskListFilter)
 	if err != nil {
-		log.Fatalf("Unable to retrieve task lists. %v", err)
 		return nil, err
 	}
 
@@ -75,11 +84,9 @@ func (c *GoogleTasksService) GetTasks(taskListID string) ([]*tasks.Task, error) 
 		for {
 			r, err := c.Service.Tasks.List(item.Id).ShowCompleted(true).ShowDeleted(true).ShowHidden(true).PageToken(pageToken).Do()
 			if err != nil {
-				log.Fatalf("Unable to retrieve tasks for task list %s. %v", item.Title, err)
-				return nil, err
+				return nil, fmt.Errorf("unable to retrieve tasks for task list %s: %w", item.Title, err)
 			}
 			allTasks = append(allTasks, r.Items...)
-			// log.Printf("Tasks in list '%s': %d", item.Title, len(r.Items))
 			pageToken = r.NextPageToken
 			if pageToken == "" {
 				break
@@ -90,33 +97,30 @@ func (c *GoogleTasksService) GetTasks(taskListID string) ([]*tasks.Task, error) 
 }
 
 func (c *GoogleTasksService) AddTask(task *tasks.Task) (bool, error) {
-	isTaskAdded := false
-	tasksList, err := c.GetTaskLists("New")
+	filter := c.Config.GoogleTaskListFilter
+	tasksList, err := c.GetTaskLists(filter)
 	if err != nil {
 		return false, fmt.Errorf("failed to get task lists: %w", err)
+	}
+	if len(tasksList) == 0 {
+		return false, fmt.Errorf("no task list found matching filter '%s'", filter)
 	}
 	_, err = c.Service.Tasks.Insert(tasksList[0].Id, task).Do()
 	if err != nil {
 		return false, fmt.Errorf("failed to add task: %w", err)
 	}
-	isTaskAdded = true
-	return isTaskAdded, nil
+	return true, nil
 }
 
-func getClient(config *oauth2.Config) *http.Client {
-	// The file token.json stores the user's access and refresh tokens, and is
-	// created automatically when the authorization flow completes for the first
-	// time.
-	tokFile := "token.json"
-	tok, err := tokenFromFile(tokFile)
+func getClient(config *oauth2.Config, tokenFile string) *http.Client {
+	tok, err := tokenFromFile(tokenFile)
 	if err != nil {
 		tok = getTokenFromWeb(config)
-		saveToken(tokFile, tok)
+		saveToken(tokenFile, tok)
 	}
 	return config.Client(context.Background(), tok)
 }
 
-// Request a token from the web, then returns the retrieved token.
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	config.RedirectURL = "http://localhost:8080/"
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
@@ -137,7 +141,7 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			panic(err)
 		}
 	}()
 
@@ -146,12 +150,11 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 
 	tok, err := config.Exchange(context.TODO(), authCode)
 	if err != nil {
-		log.Fatalf("Unable to retrieve token from web: %v", err)
+		panic(err)
 	}
 	return tok
 }
 
-// Retrieves a token from a local file.
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -163,12 +166,11 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 	return tok, err
 }
 
-// Saves a token to a file path.
 func saveToken(path string, token *oauth2.Token) {
 	fmt.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		log.Fatalf("Unable to cache oauth token: %v", err)
+		panic(err)
 	}
 	defer f.Close()
 	json.NewEncoder(f).Encode(token)
