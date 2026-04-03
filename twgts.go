@@ -50,16 +50,21 @@ func SyncGoogleTasks(cfg *config.Config) {
 		log.Fatalf("Failed to create Google Tasks client: %v", err)
 	}
 
-	for _, googleTask := range syncTask.GoogleTasks {
+	for googleTaskIndex, googleTask := range syncTask.GoogleTasks {
+		// TODO run more test on creation and matching tasks
 		taskWarriorMatch := taskwarrior.TaskWarriorTask{}
-		log.Printf("Processing Google Task: %s (Status: %s, Due: %s, ID: %s)", googleTask.Title, googleTask.Status, googleTask.Due, googleTask.Id)
+		log.Printf("Processing Google Task(%d): %s (Status: %s, Due: %s, ID: %s)", googleTaskIndex, googleTask.Title, googleTask.Status, googleTask.Due, googleTask.Id)
 		for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
-			// TODO continue here
-			googleTaskDue, _ := time.Parse("2026-01-15T00:00:00.000Z", googleTask.Due)
+			googleTaskDue, _ := time.Parse(time.RFC3339, googleTask.Due)
 			taskWarriorTaskDue, _ := time.Parse("20060102T150405Z", taskWarriorTask.Due)
-			log.Println(googleTaskDue, taskWarriorTaskDue)
 			if googleTask.Title == taskWarriorTask.Title {
-				// log.Printf("Task '%s' exists in both Google Tasks and Taskwarrior.", googleTask.Title)
+				log.Printf("Found task with matching title")
+				log.Printf("Google Task: %s, status: %s, original_due: %v, %v, parsed_due: %v, ID: %s", googleTask.Title, googleTask.Status, googleTask.Due, googleTaskDue, googleTask.Id)
+				log.Printf("Taskwr Task: %s, status: %s, original_due %v, parsed_due: %v, ID: %s", taskWarriorTask.Title, taskWarriorTask.Status, taskWarriorTask.Due, taskWarriorTaskDue, taskWarriorTask.UUID)
+				log.Printf("Time match ? %v", googleTaskDue.Equal(taskWarriorTaskDue))
+			}
+			if googleTask.Title == taskWarriorTask.Title && googleTaskDue.Equal(taskWarriorTaskDue) {
+				log.Printf("Found matching task")
 				taskWarriorMatch = taskWarriorTask
 				break
 			}
@@ -76,8 +81,8 @@ func SyncGoogleTasks(cfg *config.Config) {
 			}
 		case "needsAction":
 			if taskWarriorMatch.Title != "" {
-				// log.Printf("Task '%s' already exists in Taskwarrior, skipping.\n", googleTask.Title)
-				continue
+				log.Printf("Task '%s' already exists in Taskwarrior, skipping.\n", googleTask.Title)
+				break
 			}
 			// add to taskwarrior
 			_, err := taskWarriorClient.AddTask(taskwarrior.TaskWarriorTask{
@@ -89,10 +94,6 @@ func SyncGoogleTasks(cfg *config.Config) {
 				log.Printf("Failed to add '%s' with id '%s' and status '%s' to taskwarrior: %v", googleTask.Title, googleTask.Id, googleTask.Status, err)
 			}
 			log.Printf("Task %s added to taskwarrior", googleTask.Title)
-		}
-		if googleTask.Status == "needsAction" {
-			log.Printf("Google Task '%s' is pending, checking if it exists in Taskwarrior.", googleTask.Title)
-			break
 		}
 	}
 

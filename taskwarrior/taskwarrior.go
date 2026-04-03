@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/exec"
 	"regexp"
+	"time"
 )
 
 type TaskWarriorTask struct {
@@ -14,6 +15,7 @@ type TaskWarriorTask struct {
 	Title   string `json:"description"`
 	Status  string `json:"status"`
 	Due     string `json:"due"`
+	UUID    string `json:"uuid"`
 	Notes   string
 	Project string `json:"project,omitempty"`
 }
@@ -78,12 +80,20 @@ func (t *TaskWarriorClient) AddTask(task TaskWarriorTask) (bool, error) {
 		}
 	}
 
+	dueTime, err := time.Parse(time.RFC3339, task.Due)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse due date: %w", err)
+	}
+	localDue := dueTime.In(time.Now().Location())
+	task.Due = localDue.Format(time.RFC3339)
+
 	execCommand := ""
 	if taskProject != "" {
 		execCommand = fmt.Sprintf("task add project:%s tags:GoogleTasks due:%s -- '%s'", taskProject, task.Due, task.Title)
 	} else {
 		execCommand = fmt.Sprintf("task add tags:GoogleTasks due:%s -- '%s'", task.Due, task.Title)
 	}
+	log.Printf("Runnin exec command: %s", execCommand)
 
 	if t.DryRun {
 		log.Printf("[Dry Run] Would add task: %s", task.Title)
