@@ -10,12 +10,39 @@ import (
 
 	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/config"
 	googletasks "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/googleTasks"
+	postgressql "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/postgresSql"
 	taskssync "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/tasksSync"
 	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/taskwarrior"
 	"google.golang.org/api/tasks/v1"
 )
 
 func SyncGoogleTasks(cfg *config.Config) {
+
+	sqlClient, err := postgressql.NewPostgresSqlClient(cfg.PostgresHost, cfg.PostgresPort, cfg.PostgresUser, cfg.PostgresPassword, cfg.PostgresDBName)
+	if err != nil {
+		log.Fatalf("Failed to create PostgreSQL client: %v", err)
+	}
+	isTableCreated, err := sqlClient.CreateTasksTable()
+	if err != nil {
+		log.Fatalf("Failed to create tasks table: %v", err)
+	}
+	log.Printf("Tasks table created: %v", isTableCreated)
+
+	dbTasks, err := sqlClient.GetTasks()
+	if err != nil {
+		log.Fatalf("Failed to get tasks from database: %v", err)
+	}
+	log.Printf("Retrieved %d tasks from database.", len(dbTasks))
+
+	if true {
+		return
+	}
+
+	_, err = sqlClient.CreateTasksTable()
+	if err != nil {
+		log.Fatalf("Failed to create tasks table: %v", err)
+	}
+
 	syncTask, err := taskssync.NewTasksSync(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize sync task: %v", err)
@@ -52,6 +79,10 @@ func SyncGoogleTasks(cfg *config.Config) {
 
 	for googleTaskIndex, googleTask := range syncTask.GoogleTasks {
 		// TODO run more test on creation and matching tasks
+		if googleTaskIndex == 4 {
+			log.Println("Stopped on 3rd task for testing purposes")
+			break
+		}
 		taskWarriorMatch := taskwarrior.TaskWarriorTask{}
 		log.Printf("Processing Google Task(%d): %s (Status: %s, Due: %s, ID: %s)", googleTaskIndex, googleTask.Title, googleTask.Status, googleTask.Due, googleTask.Id)
 		for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
@@ -59,7 +90,7 @@ func SyncGoogleTasks(cfg *config.Config) {
 			taskWarriorTaskDue, _ := time.Parse("20060102T150405Z", taskWarriorTask.Due)
 			if googleTask.Title == taskWarriorTask.Title {
 				log.Printf("Found task with matching title")
-				log.Printf("Google Task: %s, status: %s, original_due: %v, %v, parsed_due: %v, ID: %s", googleTask.Title, googleTask.Status, googleTask.Due, googleTaskDue, googleTask.Id)
+				log.Printf("Google Task: %s, status: %s, original_due: %v, %v, parsed_due: %v, ID: %v", googleTask.Title, googleTask.Status, googleTask.Due, googleTaskDue, googleTaskDue, googleTask.Id)
 				log.Printf("Taskwr Task: %s, status: %s, original_due %v, parsed_due: %v, ID: %s", taskWarriorTask.Title, taskWarriorTask.Status, taskWarriorTask.Due, taskWarriorTaskDue, taskWarriorTask.UUID)
 				log.Printf("Time match ? %v", googleTaskDue.Equal(taskWarriorTaskDue))
 			}

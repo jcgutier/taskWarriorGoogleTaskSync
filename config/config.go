@@ -9,14 +9,19 @@ import (
 )
 
 type Config struct {
-	GoogleCredentialsPath       string `json:"googleCredentialsPath"`
-	GoogleTokenPath             string `json:"googleTokenPath"`
-	GoogleTaskListFilter        string `json:"googleTaskListFilter"`
-	SyncIntervalSeconds         int    `json:"syncIntervalSeconds"`
-	DryRun                      bool   `json:"dryRun"`
-	MetricsListenAddress        string `json:"metricsListenAddress"`
-	BackoffMaxAttempts          int    `json:"backoffMaxAttempts"`
-	BackoffInitialDelaySeconds  int    `json:"backoffInitialDelaySeconds"`
+	GoogleCredentialsPath      string `json:"googleCredentialsPath"`
+	GoogleTokenPath            string `json:"googleTokenPath"`
+	GoogleTaskListFilter       string `json:"googleTaskListFilter"`
+	SyncIntervalSeconds        int    `json:"syncIntervalSeconds"`
+	DryRun                     bool   `json:"dryRun"`
+	MetricsListenAddress       string `json:"metricsListenAddress"`
+	BackoffMaxAttempts         int    `json:"backoffMaxAttempts"`
+	BackoffInitialDelaySeconds int    `json:"backoffInitialDelaySeconds"`
+	PostgresHost               string `json:"postgresHost"`
+	PostgresPort               int    `json:"postgresPort"`
+	PostgresUser               string `json:"postgresUser"`
+	PostgresPassword           string `json:"postgresPassword"`
+	PostgresDBName             string `json:"postgresDBName"`
 }
 
 func LoadConfig() (*Config, error) {

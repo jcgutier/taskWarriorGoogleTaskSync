@@ -29,6 +29,29 @@ docker build -t task-sync .
 docker run -v $(pwd)/credentials.json:/data/credentials.json -v $(pwd)/token.json:/data/token.json -e GOOGLE_APPLICATION_CREDENTIALS=/data/credentials.json task-sync
 ```
 
+## PostgreSQL with Docker Compose
+
+A local PostgreSQL service can be started with Docker Compose for development or integration testing.
+
+```bash
+docker compose up -d
+```
+
+The compose file creates a `postgres` service with the following defaults:
+
+- user: `twgts`
+- password: `twgts_password`
+- database: `twgts`
+- port: `5432`
+
+To stop and remove the service:
+
+```bash
+docker compose down
+```
+
+For production, override credentials with your own environment or Compose config.
+
 ## Notes
 
 - The app uses the Google Tasks readonly scope.
