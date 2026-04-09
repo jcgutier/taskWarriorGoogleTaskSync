@@ -34,13 +34,8 @@ func SyncGoogleTasks(cfg *config.Config) {
 	}
 	log.Printf("Retrieved %d tasks from database.", len(dbTasks))
 
-	if true {
-		return
-	}
-
-	_, err = sqlClient.CreateTasksTable()
-	if err != nil {
-		log.Fatalf("Failed to create tasks table: %v", err)
+	if len(dbTasks) < 0 {
+		log.Printf("No tasks found in database, adding sample task.")
 	}
 
 	syncTask, err := taskssync.NewTasksSync(cfg)
@@ -79,25 +74,45 @@ func SyncGoogleTasks(cfg *config.Config) {
 
 	for googleTaskIndex, googleTask := range syncTask.GoogleTasks {
 		// TODO run more test on creation and matching tasks
-		if googleTaskIndex == 4 {
+		if googleTaskIndex == 1 {
 			log.Println("Stopped on 3rd task for testing purposes")
 			break
 		}
+
+		dbTaskMatch := postgressql.SyncTask{}
+		for _, dbTask := range dbTasks {
+			if googleTask.Id == dbTask.GID {
+				log.Printf("Task '%s' with Google Task ID '%s' already exists in database, skipping.\n", googleTask.Title, googleTask.Id)
+				dbTaskMatch = dbTask
+				break
+			}
+		}
 		taskWarriorMatch := taskwarrior.TaskWarriorTask{}
 		log.Printf("Processing Google Task(%d): %s (Status: %s, Due: %s, ID: %s)", googleTaskIndex, googleTask.Title, googleTask.Status, googleTask.Due, googleTask.Id)
-		for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
-			googleTaskDue, _ := time.Parse(time.RFC3339, googleTask.Due)
-			taskWarriorTaskDue, _ := time.Parse("20060102T150405Z", taskWarriorTask.Due)
-			if googleTask.Title == taskWarriorTask.Title {
-				log.Printf("Found task with matching title")
-				log.Printf("Google Task: %s, status: %s, original_due: %v, %v, parsed_due: %v, ID: %v", googleTask.Title, googleTask.Status, googleTask.Due, googleTaskDue, googleTaskDue, googleTask.Id)
-				log.Printf("Taskwr Task: %s, status: %s, original_due %v, parsed_due: %v, ID: %s", taskWarriorTask.Title, taskWarriorTask.Status, taskWarriorTask.Due, taskWarriorTaskDue, taskWarriorTask.UUID)
-				log.Printf("Time match ? %v", googleTaskDue.Equal(taskWarriorTaskDue))
+
+		if dbTaskMatch.GID == "" {
+			for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
+				googleTaskDue, _ := time.Parse(time.RFC3339, googleTask.Due)
+				taskWarriorTaskDue, _ := time.Parse("20060102T150405Z", taskWarriorTask.Due)
+				if googleTask.Title == taskWarriorTask.Title {
+					log.Printf("Found task with matching title")
+					log.Printf("Google Task: %s, status: %s, original_due: %v, %v, parsed_due: %v, ID: %v", googleTask.Title, googleTask.Status, googleTask.Due, googleTaskDue, googleTaskDue, googleTask.Id)
+					log.Printf("Taskwr Task: %s, status: %s, original_due %v, parsed_due: %v, ID: %s", taskWarriorTask.Title, taskWarriorTask.Status, taskWarriorTask.Due, taskWarriorTaskDue, taskWarriorTask.UUID)
+					log.Printf("Time match ? %v", googleTaskDue.Equal(taskWarriorTaskDue))
+				}
+				if googleTask.Title == taskWarriorTask.Title && googleTaskDue.Equal(taskWarriorTaskDue) {
+					log.Printf("Found matching task")
+					taskWarriorMatch = taskWarriorTask
+					break
+				}
 			}
-			if googleTask.Title == taskWarriorTask.Title && googleTaskDue.Equal(taskWarriorTaskDue) {
-				log.Printf("Found matching task")
-				taskWarriorMatch = taskWarriorTask
-				break
+
+			// TODO add task to database, and change the logic below for these values
+		} else {
+			taskWarriorMatch = taskwarrior.TaskWarriorTask{
+				Title: googleTask.Title,
+				Due:   googleTask.Due,
+				Notes: fmt.Sprintf("google_task_id=%s", googleTask.Id),
 			}
 		}
 		switch googleTask.Status {
@@ -126,6 +141,7 @@ func SyncGoogleTasks(cfg *config.Config) {
 			}
 			log.Printf("Task %s added to taskwarrior", googleTask.Title)
 		}
+
 	}
 
 	for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
