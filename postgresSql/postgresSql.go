@@ -51,7 +51,8 @@ func (psc *PostgresSqlClient) Connect() error {
 func (psc *PostgresSqlClient) CreateTasksTable() (bool, error) {
 	createTableQuery := `
 	CREATE TABLE IF NOT EXISTS tasks (
-		gid SERIAL PRIMARY KEY,
+		id SERIAL PRIMARY KEY,
+		gid TEXT,
 		tid TEXT NOT NULL,
 		title TEXT NOT NULL,
 		due_date TIMESTAMP,
@@ -65,8 +66,15 @@ func (psc *PostgresSqlClient) CreateTasksTable() (bool, error) {
 	return true, err
 }
 
-func (psc *PostgresSqlClient) GetTasks() ([]SyncTask, error) {
-	getTasksQuery := `SELECT gid, tid, title, due_date, status FROM tasks;`
+func (psc *PostgresSqlClient) GetTasks(gid string, tid string) ([]SyncTask, error) {
+	getTasksQuery := `SELECT gid, tid, title, due_date, status FROM tasks`
+	if gid != "" {
+		getTasksQuery = fmt.Sprintf(`%s WHERE gid = '%s';`, getTasksQuery, gid)
+	} else if tid != "" {
+		getTasksQuery = fmt.Sprintf(`%s WHERE tid = '%s';`, getTasksQuery, tid)
+	} else {
+		getTasksQuery = fmt.Sprintf(`%s;`, getTasksQuery)
+	}
 	log.Printf("Getting tasks with query: %s", getTasksQuery)
 
 	err := psc.db.Ping()
@@ -98,8 +106,11 @@ func (psc *PostgresSqlClient) GetTasks() ([]SyncTask, error) {
 }
 
 func (psc *PostgresSqlClient) AddTask(task SyncTask) error {
-	// TODO implement logic to add a task to the database
-	return nil
+	addTaskQuery := `INSERT INTO tasks (gid, tid, title, due_date, status) VALUES ($1, $2, $3, $4, $5);`
+	log.Printf("Adding task with query: %s", addTaskQuery)
+
+	_, err := psc.db.Exec(addTaskQuery, task.GID, task.TID, task.Title, task.DUE, task.Status)
+	return err
 }
 
 func (psc *PostgresSqlClient) UpdateTask(task SyncTask) error {

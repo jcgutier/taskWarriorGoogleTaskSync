@@ -80,6 +80,7 @@ func (t *TaskWarriorClient) AddTask(task TaskWarriorTask) (bool, error) {
 		}
 	}
 
+	// TODO run more test here as the time seems not to be matching
 	dueTime, err := time.Parse(time.RFC3339, task.Due)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse due date: %w", err)
@@ -93,7 +94,7 @@ func (t *TaskWarriorClient) AddTask(task TaskWarriorTask) (bool, error) {
 	} else {
 		execCommand = fmt.Sprintf("task add tags:GoogleTasks due:%s -- '%s'", task.Due, task.Title)
 	}
-	log.Printf("Runnin exec command: %s", execCommand)
+	log.Printf("Running exec command: %s", execCommand)
 
 	if t.DryRun {
 		log.Printf("[Dry Run] Would add task: %s", task.Title)
@@ -106,6 +107,7 @@ func (t *TaskWarriorClient) AddTask(task TaskWarriorTask) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to add task: %w", err)
 	}
+	// TODO get the ID of the created task and return it
 	return true, nil
 }
 

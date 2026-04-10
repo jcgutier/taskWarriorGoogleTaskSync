@@ -96,20 +96,20 @@ func (c *GoogleTasksService) GetTasks(taskListFilter string) ([]*tasks.Task, err
 	return allTasks, nil
 }
 
-func (c *GoogleTasksService) AddTask(task *tasks.Task) (bool, error) {
+func (c *GoogleTasksService) AddTask(task *tasks.Task) (*tasks.Task, error) {
 	filter := c.Config.GoogleTaskListFilter
 	tasksList, err := c.GetTaskLists(filter)
 	if err != nil {
-		return false, fmt.Errorf("failed to get task lists: %w", err)
+		return nil, fmt.Errorf("failed to get task lists: %w", err)
 	}
 	if len(tasksList) == 0 {
-		return false, fmt.Errorf("no task list found matching filter '%s'", filter)
+		return nil, fmt.Errorf("no task list found matching filter '%s'", filter)
 	}
-	_, err = c.Service.Tasks.Insert(tasksList[0].Id, task).Do()
+	gTask, err := c.Service.Tasks.Insert(tasksList[0].Id, task).Do()
 	if err != nil {
-		return false, fmt.Errorf("failed to add task: %w", err)
+		return nil, fmt.Errorf("failed to add task: %w", err)
 	}
-	return true, nil
+	return gTask, nil
 }
 
 func getClient(config *oauth2.Config, tokenFile string) *http.Client {
