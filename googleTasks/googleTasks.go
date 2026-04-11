@@ -15,8 +15,9 @@ import (
 )
 
 type GoogleTasksService struct {
-	Service *tasks.Service
-	Config  *config.Config
+	Service   *tasks.Service
+	Config    *config.Config
+	TaskLists []*tasks.TaskList
 }
 
 func NewGoogleTasksClient(cfg *config.Config) (*GoogleTasksService, error) {
@@ -65,6 +66,7 @@ func (c *GoogleTasksService) GetTaskLists(filter string) ([]*tasks.TaskList, err
 		}
 		return filteredTaskLists, nil
 	}
+	c.TaskLists = r.Items
 	return r.Items, nil
 }
 
@@ -108,6 +110,20 @@ func (c *GoogleTasksService) AddTask(task *tasks.Task) (*tasks.Task, error) {
 	gTask, err := c.Service.Tasks.Insert(tasksList[0].Id, task).Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to add task: %w", err)
+	}
+	return gTask, nil
+}
+
+func (c *GoogleTasksService) UpdateTask(task *tasks.Task) (*tasks.Task, error) {
+	filter := c.Config.GoogleTaskListFilter
+	tasksList, err := c.GetTaskLists(filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task lists: %w", err)
+	}
+
+	gTask, err := c.Service.Tasks.Update(tasksList[0].Id, task.Id, task).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to complete task: %w", err)
 	}
 	return gTask, nil
 }

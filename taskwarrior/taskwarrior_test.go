@@ -154,3 +154,43 @@ func TestAddTaskAddsProjectAndGoogleTasksTag(t *testing.T) {
 		}
 	}
 }
+
+func TestParseTaskWarriorInfoOutput(t *testing.T) {
+	output := `Name          Value
+------------- ------------------------------------------------------------------
+ID            373
+Description   Super1
+Status        Pending
+Entered       2026-04-10 17:49:22 (8min)
+Due           2026-04-10 00:00:00
+Last modified 2026-04-10 17:49:22 (8min)
+Tags          GoogleTasks
+Virtual tags  DUE DUETODAY LATEST MONTH OVERDUE PENDING QUARTER READY TAGGED TODAY UNBLOCKED WEEK YEAR
+UUID          3965abff-67ba-4b17-bc35-860126cf2956
+Urgency       9.942
+`
+
+	task, err := ParseTaskWarriorInfoOutput(output)
+	if err != nil {
+		t.Fatalf("ParseTaskWarriorInfoOutput returned error: %v", err)
+	}
+
+	if task.ID != 373 {
+		t.Fatalf("expected ID 373, got %d", task.ID)
+	}
+	if task.Title != "Super1" {
+		t.Fatalf("expected Title Super1, got %q", task.Title)
+	}
+	if task.Status != "Pending" {
+		t.Fatalf("expected Status Pending, got %q", task.Status)
+	}
+	if task.Due != "2026-04-10 00:00:00" {
+		t.Fatalf("expected Due 2026-04-10 00:00:00, got %q", task.Due)
+	}
+	if task.UUID != "3965abff-67ba-4b17-bc35-860126cf2956" {
+		t.Fatalf("expected UUID 3965abff-67ba-4b17-bc35-860126cf2956, got %q", task.UUID)
+	}
+	if len(task.Tags) != 1 || task.Tags[0] != "GoogleTasks" {
+		t.Fatalf("expected Tags [GoogleTasks], got %v", task.Tags)
+	}
+}

@@ -29,7 +29,7 @@ func NewTasksSync(cfg *config.Config) (*TasksSync, error) {
 	}
 
 	taskWarriorClient := &taskwarrior.TaskWarriorClient{DryRun: cfg.DryRun}
-	taskWarriorTasks, err := taskWarriorClient.ListTasks()
+	taskWarriorTasks, err := taskWarriorClient.GetTasks()
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (s *TasksSync) Sync() error {
 		case "completed":
 			if found && twTask.Status == "pending" && twTask.ID != 0 {
 				log.Printf("Task '%s' exists in Google Tasks as completed and pending in Taskwarrior, completing Taskwarrior task ID %d", googleTask.Title, twTask.ID)
-				if err := s.taskWarriorClient.CompleteTask(twTask.ID); err != nil {
+				if err := s.taskWarriorClient.CompleteTask(""); err != nil {
 					return fmt.Errorf("failed to complete taskwarrior task %d: %w", twTask.ID, err)
 				}
 			}

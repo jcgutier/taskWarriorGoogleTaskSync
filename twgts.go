@@ -33,6 +33,7 @@ func SyncGoogleTasks(cfg *config.Config) {
 		log.Fatalf("Failed to initialize sync task: %v", err)
 	}
 
+	// TODO move this to tasksync.sync
 	completedGTasks := 0
 	needActionGTasks := 0
 	for _, gTask := range syncTask.GoogleTasks {
@@ -76,11 +77,12 @@ func SyncGoogleTasks(cfg *config.Config) {
 		if len(dbTasks) > 0 {
 			dbTask = dbTasks[0]
 		}
-		log.Printf("DB task: %s (Status: %s, Due: %s, GID: %s, TID: %s)", dbTask.Title, dbTask.Status, dbTask.DUE, dbTask.GID, dbTask.TID)
+		// log.Printf("DB task: %s (Status: %s, Due: %s, GID: %s, TID: %s)", dbTask.Title, dbTask.Status, dbTask.DUE, dbTask.GID, dbTask.TID)
 
 		taskWarriorMatch := taskwarrior.TaskWarriorTask{}
 
 		googleTaskDue, _ := time.Parse(time.RFC3339, googleTask.Due)
+		googleTaskDueDate := googleTaskDue.Format("20060102")
 		if dbTask.GID == "" {
 			for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
 				taskWarriorTaskDue, _ := time.Parse("20060102T150405Z", taskWarriorTask.Due)
@@ -118,9 +120,9 @@ func SyncGoogleTasks(cfg *config.Config) {
 		}
 
 		taskWarriorTaskDue, _ := time.Parse("20060102T150405Z", taskWarriorMatch.Due)
-		if taskWarriorMatch.Title == "" {
-			log.Printf("Adding task to task warrior")
-			_, err := taskWarriorClient.AddTask(taskwarrior.TaskWarriorTask{
+		taskWarriorTaskDueDate := taskWarriorTaskDue.Format("20060102")
+		if taskWarriorMatch.Title == "" && googleTask.Status == "needsAction" {
+			taskAdded, err := taskWarriorClient.AddTask(taskwarrior.TaskWarriorTask{
 				Title: googleTask.Title,
 				Notes: googleTask.Notes,
 				Due:   googleTask.Due,
@@ -128,16 +130,56 @@ func SyncGoogleTasks(cfg *config.Config) {
 			if err != nil {
 				log.Printf("Failed to add '%s' with id '%s' and status '%s' to taskwarrior: %v", googleTask.Title, googleTask.Id, googleTask.Status, err)
 			}
-			log.Printf("Task %s added to taskwarrior", googleTask.Title)
-			// TODO add the task to the DB with the Google Task ID and the Taskwarrior UUID if possible
-		} else if googleTask.Status == "completed" {
-			log.Printf("Marking as complete the task warrior task with ID: %s", taskWarriorMatch.ID)
-			err := taskWarriorClient.CompleteTask(taskWarriorMatch.ID)
-			if err != nil {
-				log.Printf("Failed to complete '%s'(%d) in taskwarrior: %v", googleTask.Title, taskWarriorMatch.ID, err)
+			if taskAdded.UUID != "" {
+				log.Printf("Task '%s' added to taskwarrior with UUID '%s'.", googleTask.Title, taskAdded.UUID)
+				dbTask := postgressql.SyncTask{
+					GID:    googleTask.Id,
+					TID:    taskAdded.UUID,
+					Title:  googleTask.Title,
+					DUE:    googleTask.Due,
+					Status: googleTask.Status,
+				}
+				err := sqlClient.AddTask(dbTask)
+				if err != nil {
+					log.Printf("Failed to add task '%s' to database: %v", googleTask.Title, err)
+				} else {
+					log.Printf("Task '%s' added to database with Google Task ID '%s' and Taskwarrior UUID '%s'.", googleTask.Title, googleTask.Id, taskAdded.UUID)
+				}
 			}
-		} else if googleTaskDue.Equal(taskWarriorTaskDue) {
-			log.Printf("Google task and Task Warrior DUE are different, setting Google task DUE")
+		} else if googleTask.Status == "completed" {
+			// log.Printf("Marking as complete the task warrior task with ID: %s", taskWarriorMatch.UUID)
+			var twTaskStatus string
+			for _, taskWarriorTask := range syncTask.TaskWarriorTasks {
+				if taskWarriorTask.UUID == taskWarriorMatch.UUID {
+					twTaskStatus = taskWarriorTask.Status
+					break
+				}
+			}
+			// log.Printf("Current task warrior task status: %s", twTaskStatus)
+			if twTaskStatus != "completed" && taskWarriorMatch.UUID != "" {
+				err := taskWarriorClient.CompleteTask(taskWarriorMatch.UUID)
+				if err != nil {
+					log.Printf("Failed to complete '%s'(%s) in taskwarrior: %v", googleTask.Title, taskWarriorMatch.UUID, err)
+				}
+				log.Printf("Task '%s' marked as completed in taskwarrior", googleTask.Title)
+			}
+			if dbTask.Status != "completed" {
+				dbTask.Status = "completed"
+				err := sqlClient.UpdateStatusTask(dbTask.TID, "completed")
+				if err != nil {
+					log.Printf("Failed to update task status in database: %v", err)
+				}
+			}
+		} else if googleTaskDueDate != taskWarriorTaskDueDate {
+			log.Printf("Updating due date for task '%s' in taskwarrior to match Google Task due date '%s'", googleTask.Title, googleTaskDueDate)
+			taskWarriorClient.UpdateTaskDue(taskWarriorMatch, googleTaskDueDate)
+			sqlClient.UpdateTask(postgressql.SyncTask{
+				GID:   googleTask.Id,
+				TID:   taskWarriorMatch.UUID,
+				Title: googleTask.Title,
+				DUE:   googleTask.Due,
+			})
+
 		}
 		// TODO add logic when the project is different
 	}
@@ -152,7 +194,23 @@ func SyncGoogleTasks(cfg *config.Config) {
 			log.Printf("Failed to get task from database: %v", err)
 		}
 		if len(dbTask) > 0 {
+			syncTask := dbTask[0]
 			log.Printf("Task '%s' with Taskwarrior UUID '%s' already exists in database, skipping.", taskWarriorTask.Title, taskWarriorTask.UUID)
+			if syncTask.Status != "completed" && taskWarriorTask.Status == "completed" {
+				log.Printf("Marking as complete the google task with ID: %s", syncTask.GID)
+				_, err := googleTasksClient.UpdateTask(&tasks.Task{
+					Id:     syncTask.GID,
+					Status: "completed",
+				})
+				if err != nil {
+					log.Printf("Failed to complete '%s'(%s) in Google Tasks: %v", taskWarriorTask.Title, syncTask.GID, err)
+				}
+				log.Printf("Task '%s' marked as completed in Google Tasks", taskWarriorTask.Title)
+				err = sqlClient.UpdateStatusTask(syncTask.TID, "completed")
+				if err != nil {
+					log.Printf("Failed to update task status in database: %v", err)
+				}
+			}
 			continue
 		} else {
 			for _, googleTask := range syncTask.GoogleTasks {
@@ -164,6 +222,21 @@ func SyncGoogleTasks(cfg *config.Config) {
 			}
 			if googleTaskMatch.Title != "" {
 				log.Printf("Task '%s' with Taskwarrior UUID '%s' already exists in Google Tasks with ID '%s', skipping.", taskWarriorTask.Title, taskWarriorTask.UUID, googleTaskMatch.Id)
+				if googleTaskMatch.Status != "completed" && taskWarriorTask.Status == "completed" {
+					log.Printf("Marking as complete the google task with ID: %s", googleTaskMatch.Id)
+					_, err := googleTasksClient.UpdateTask(&tasks.Task{
+						Id:     googleTaskMatch.Id,
+						Status: "completed",
+					})
+					if err != nil {
+						log.Printf("Failed to complete '%s'(%s) in Google Tasks: %v", taskWarriorTask.Title, googleTaskMatch.Id, err)
+					}
+					log.Printf("Task '%s' marked as completed in Google Tasks", taskWarriorTask.Title)
+					err = sqlClient.UpdateStatusTask(taskWarriorTask.UUID, "completed")
+					if err != nil {
+						log.Printf("Failed to update task status in database: %v", err)
+					}
+				}
 				continue
 			}
 		}
@@ -183,12 +256,33 @@ func SyncGoogleTasks(cfg *config.Config) {
 		if taskWarriorTask.Project != "" {
 			gTask.Notes = fmt.Sprintf("project=%s", taskWarriorTask.Project)
 		}
+		if len(taskWarriorTask.Tags) > 0 {
+			commaSeparatedTags := strings.Join(taskWarriorTask.Tags, ",")
+			if gTask.Notes != "" {
+				gTask.Notes += fmt.Sprintf(" tags=%s", commaSeparatedTags)
+			} else {
+				gTask.Notes = fmt.Sprintf("tags=%s", commaSeparatedTags)
+			}
+		}
 		log.Printf("Adding task '%s' to Google Tasks.\n", taskWarriorTask.Title)
 		newGTask, err := googleTasksClient.AddTask(&gTask)
 		if err != nil {
 			log.Printf("Failed to add task '%s' to Google Tasks: %v", taskWarriorTask.Title, err)
 		}
 		log.Printf("Google task created, title: %s, Status: %s, Due: %s, ID: %s", newGTask.Title, newGTask.Status, newGTask.Due, newGTask.Id)
+
+		log.Printf("Adding task to DB with Google Task ID '%s' and Taskwarrior UUID '%s'.", newGTask.Id, taskWarriorTask.UUID)
+		addDbTask := postgressql.SyncTask{
+			GID:    newGTask.Id,
+			TID:    taskWarriorTask.UUID,
+			Title:  newGTask.Title,
+			DUE:    newGTask.Due,
+			Status: newGTask.Status,
+		}
+		err = sqlClient.AddTask(addDbTask)
+		if err != nil {
+			log.Printf("Failed to add task '%s' to database: %v", newGTask.Title, err)
+		}
 	}
 	// TODO add logic to clean up the database by removing completed tasks
 	log.Print("Sync completed.")

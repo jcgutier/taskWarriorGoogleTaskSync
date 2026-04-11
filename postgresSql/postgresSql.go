@@ -60,7 +60,7 @@ func (psc *PostgresSqlClient) CreateTasksTable() (bool, error) {
 	);
 	`
 
-	log.Printf("Creating tasks table with query: %s", createTableQuery)
+	// log.Printf("Creating tasks table with query: %s", createTableQuery)
 
 	_, err := psc.db.Exec(createTableQuery)
 	return true, err
@@ -75,7 +75,7 @@ func (psc *PostgresSqlClient) GetTasks(gid string, tid string) ([]SyncTask, erro
 	} else {
 		getTasksQuery = fmt.Sprintf(`%s;`, getTasksQuery)
 	}
-	log.Printf("Getting tasks with query: %s", getTasksQuery)
+	// log.Printf("Getting tasks with query: %s", getTasksQuery)
 
 	err := psc.db.Ping()
 	if err != nil {
@@ -114,13 +114,24 @@ func (psc *PostgresSqlClient) AddTask(task SyncTask) error {
 }
 
 func (psc *PostgresSqlClient) UpdateTask(task SyncTask) error {
-	// TODO implement logic to update a task in the database
-	return nil
+	updateTaskQuery := `UPDATE tasks SET gid = $1, title = $2, due_date = $3, status = $4 WHERE tid = $5;`
+	log.Printf("Updating task with query: %s", updateTaskQuery)
+
+	_, err := psc.db.Exec(updateTaskQuery, task.GID, task.Title, task.DUE, task.Status, task.TID)
+	return err
 }
 
 func (psc *PostgresSqlClient) DeleteTask(taskID string) error {
 	// TODO implement logic to delete a task from the database
 	return nil
+}
+
+func (psc *PostgresSqlClient) UpdateStatusTask(taskID string, status string) error {
+	updateStatusTaskQuery := `UPDATE tasks SET status = $1 WHERE tid = $2;`
+	log.Printf("Updating task status with query: %s", updateStatusTaskQuery)
+
+	_, err := psc.db.Exec(updateStatusTaskQuery, status, taskID)
+	return err
 }
 
 type SyncTask struct {
