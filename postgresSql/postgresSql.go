@@ -128,7 +128,7 @@ func (psc *PostgresSqlClient) DeleteTask(taskID string) error {
 
 func (psc *PostgresSqlClient) UpdateStatusTask(taskID string, status string) error {
 	updateStatusTaskQuery := `UPDATE tasks SET status = $1 WHERE tid = $2;`
-	log.Printf("Updating task status with query: %s", updateStatusTaskQuery)
+	// log.Printf("Updating task status with query: %s", updateStatusTaskQuery)
 
 	_, err := psc.db.Exec(updateStatusTaskQuery, status, taskID)
 	return err

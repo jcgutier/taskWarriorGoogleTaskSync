@@ -168,6 +168,8 @@ func SyncGoogleTasks(cfg *config.Config) {
 				err := sqlClient.UpdateStatusTask(dbTask.TID, "completed")
 				if err != nil {
 					log.Printf("Failed to update task status in database: %v", err)
+				} else {
+					log.Printf("Task: '%s' status updated to 'completed' in database for Taskwarrior UUID '%s'.", googleTask.Title, dbTask.TID)
 				}
 			}
 		} else if googleTaskDueDate != taskWarriorTaskDueDate {
