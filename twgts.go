@@ -46,8 +46,26 @@ func SyncGoogleTasks(cfg *config.Config) {
 		}
 	}
 
+	completedTWTasks := 0
+	pendingTWTasks := 0
+	deletedTWTasks := 0
+	recurringTWTasks := 0
+	for _, twTask := range syncTask.TaskWarriorTasks {
+		if twTask.Status == "completed" {
+			completedTWTasks++
+		} else if twTask.Status == "pending" {
+			pendingTWTasks++
+		} else if twTask.Status == "deleted" {
+			deletedTWTasks++
+		} else if twTask.Status == "recurring" {
+			recurringTWTasks++
+		} else {
+			log.Printf("Task Warrior Task: %s, Status: %s, Due: %s", twTask.Title, twTask.Status, twTask.Due)
+		}
+	}
+
 	log.Printf("Retrieved %d tasks from Google Tasks (%d completed, %d needs action).", len(syncTask.GoogleTasks), completedGTasks, needActionGTasks)
-	log.Printf("Retrieved %d tasks from Task Warrior.", len(syncTask.TaskWarriorTasks))
+	log.Printf("Retrieved %d tasks from Task Warrior (%d completed, %d pending, %d deleted, %d recurring).", len(syncTask.TaskWarriorTasks), completedTWTasks, pendingTWTasks, deletedTWTasks, recurringTWTasks)
 
 	// log.Printf("Google tasks: ")
 	// for _, task := range syncTask.GoogleTasks {
@@ -191,6 +209,21 @@ func SyncGoogleTasks(cfg *config.Config) {
 		googleTaskMatch := tasks.Task{}
 		log.Printf("Processing TW task[%d]: %s, (Status: %s, Due: %s, UUID: %s)", twTaskIndex, taskWarriorTask.Title, taskWarriorTask.Status, taskWarriorTask.Due, taskWarriorTask.UUID)
 		dbTask, err := sqlClient.GetTasks("", taskWarriorTask.UUID)
+
+		twTaskModifiedDate, _ := time.Parse("20210128T015148Z", taskWarriorTask.Modified)
+		if taskWarriorTask.Status == "deleted" && twTaskModifiedDate.Before(time.Now().Add(-1*365*24*time.Hour)) {
+			log.Printf("Task '%s' with Taskwarrior UUID '%s' is marked as deleted and was modified more than a year ago", taskWarriorTask.Title, taskWarriorTask.UUID)
+			taskWarriorClient.PurgeTask(taskWarriorTask.UUID)
+			sqlClient.DeleteTask(taskWarriorTask.UUID)
+			break
+		} else if taskWarriorTask.Status == "completed" && twTaskModifiedDate.After(time.Now().Add(-1*365*24*time.Hour)) {
+			// we can consider to keep it in taskwarrior and just mark it as completed in google tasks and in the database, but for now we will purge it from taskwarrior and delete it from the database
+			taskWarriorClient.DeleteTask(taskWarriorTask.UUID)
+			taskWarriorClient.PurgeTask(taskWarriorTask.UUID)
+			sqlClient.DeleteTask(taskWarriorTask.UUID)
+			log.Printf("Task: %s, was in status completed form more tha a year. It was deleted and purged from TW and deleted from database.", taskWarriorTask.Title)
+			break
+		}
 
 		if err != nil {
 			log.Printf("Failed to get task from database: %v", err)

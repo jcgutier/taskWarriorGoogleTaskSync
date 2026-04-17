@@ -122,8 +122,11 @@ func (psc *PostgresSqlClient) UpdateTask(task SyncTask) error {
 }
 
 func (psc *PostgresSqlClient) DeleteTask(taskID string) error {
-	// TODO implement logic to delete a task from the database
-	return nil
+	deleteTaskQuery := `DELETE FROM tasks WHERE tid = $1;`
+	log.Printf("Deleting task with query: %s", deleteTaskQuery)
+
+	_, err := psc.db.Exec(deleteTaskQuery, taskID)
+	return err
 }
 
 func (psc *PostgresSqlClient) UpdateStatusTask(taskID string, status string) error {

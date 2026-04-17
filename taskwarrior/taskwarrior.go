@@ -14,15 +14,16 @@ import (
 var taskWarriorInfoLineRegexp = regexp.MustCompile(`^(.+?)[ \t]{2,}(.*)$`)
 
 type TaskWarriorTask struct {
-	ID      int    `json:"id"`
-	End     string `json:"end"`
-	Title   string `json:"description"`
-	Status  string `json:"status"`
-	Due     string `json:"due"`
-	UUID    string `json:"uuid"`
-	Notes   string
-	Project string   `json:"project,omitempty"`
-	Tags    []string `json:"tags,omitempty"`
+	ID       int    `json:"id"`
+	End      string `json:"end"`
+	Title    string `json:"description"`
+	Status   string `json:"status"`
+	Due      string `json:"due"`
+	UUID     string `json:"uuid"`
+	Notes    string
+	Project  string   `json:"project,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
+	Modified string   `json:"modified,omitempty"`
 }
 
 type TaskWarriorClient struct {
@@ -233,6 +234,36 @@ func (t *TaskWarriorClient) UpdateTaskDue(task TaskWarriorTask, newDue string) e
 	log.Printf("Output: %s", output)
 	if err != nil {
 		return fmt.Errorf("failed to update task due date: %v", err)
+	}
+	return nil
+}
+
+func (t *TaskWarriorClient) PurgeTask(taskID string) error {
+	if t.DryRun {
+		log.Printf("[Dry Run] Would purge task with ID: %s", taskID)
+		return nil
+	}
+	execCommand := fmt.Sprintf("task %s purge rc.confirmation=off", taskID)
+	log.Printf("Running exec command: %s", execCommand)
+	cmd := exec.Command("sh", "-c", execCommand)
+	_, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to purge task: %v", err)
+	}
+	return nil
+}
+
+func (t *TaskWarriorClient) DeleteTask(taskID string) error {
+	if t.DryRun {
+		log.Printf("[Dry Run] Would delete task with ID: %s", taskID)
+		return nil
+	}
+	execCommand := fmt.Sprintf("task %s delete rc.confirmation=off", taskID)
+	log.Printf("Running exec command: %s", execCommand)
+	cmd := exec.Command("sh", "-c", execCommand)
+	_, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to delete task: %v", err)
 	}
 	return nil
 }
