@@ -6,6 +6,7 @@ import (
 
 	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/config"
 	googletasks "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/googleTasks"
+	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/sqlite3"
 	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/taskwarrior"
 	"google.golang.org/api/tasks/v1"
 )
@@ -44,6 +45,20 @@ func NewTasksSync(cfg *config.Config) (*TasksSync, error) {
 }
 
 func (s *TasksSync) Sync() error {
+	sqlite3Client, err := sqlite3.NewSQLite3Client("")
+	if err != nil {
+		return fmt.Errorf("failed to initialize SQLite3 client: %w", err)
+	}
+	defer sqlite3Client.Db.Close()
+
+	ptasks, err := sqlite3Client.GetPendingTasks() // Just to demonstrate usage of the SQLite3Client struct; you can remove this line if not needed
+	if err != nil {
+		return fmt.Errorf("failed to get pending tasks: %w", err)
+	}
+	log.Print("Pending tasks found: ", len(ptasks))
+
+	return nil
+
 	taskWarriorByTitle := map[string]taskwarrior.TaskWarriorTask{}
 	for _, tw := range s.TaskWarriorTasks {
 		taskWarriorByTitle[tw.Title] = tw

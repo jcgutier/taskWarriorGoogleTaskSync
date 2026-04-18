@@ -331,7 +331,12 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	SyncGoogleTasks(cfg)
+	// SyncGoogleTasks(cfg)
+	taskSync, err := taskssync.NewTasksSync(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create tasks sync: %v", err)
+	}
+	taskSync.Sync()
 
 	// taskWarriorClient := taskwarrior.TaskWarriorClient{}
 	// twPendingTasks, err := taskWarriorClient.GetPendingTasks() // Just to demonstrate usage of the TaskwarriorClient struct
