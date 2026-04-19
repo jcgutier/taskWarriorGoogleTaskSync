@@ -336,7 +336,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create tasks sync: %v", err)
 	}
-	taskSync.Sync()
+	err = taskSync.Sync()
+	if err != nil {
+		log.Fatalf("Failed to sync tasks: %v", err)
+	}
 
 	// taskWarriorClient := taskwarrior.TaskWarriorClient{}
 	// twPendingTasks, err := taskWarriorClient.GetPendingTasks() // Just to demonstrate usage of the TaskwarriorClient struct

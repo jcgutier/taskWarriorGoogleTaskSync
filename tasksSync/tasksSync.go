@@ -3,6 +3,8 @@ package taskssync
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"time"
 
 	"gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/config"
 	googletasks "gitlab.com/jcgutier/jcgutier/Golang/taskSyncPOC/googleTasks"
@@ -49,13 +51,113 @@ func (s *TasksSync) Sync() error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize SQLite3 client: %w", err)
 	}
+
 	defer sqlite3Client.Db.Close()
 
-	ptasks, err := sqlite3Client.GetPendingTasks() // Just to demonstrate usage of the SQLite3Client struct; you can remove this line if not needed
+	// Get pending tasks from Taskwarrior using the SQLite3 client
+	pTasks, pTasksData, err := sqlite3Client.GetPendingTasks()
 	if err != nil {
 		return fmt.Errorf("failed to get pending tasks: %w", err)
 	}
-	log.Print("Pending tasks found: ", len(ptasks))
+	log.Print("Pending tasks found on Taskwarrior: ", len(pTasks))
+
+	// Create tasks on Google Tasks for each pending Taskwarrior task that doesn't exist in Google Tasks
+	for taskIndex, taskUUID := range pTasks {
+		taskDueInt, err := strconv.ParseInt(pTasksData[taskIndex].Due, 10, 64)
+		if err != nil {
+			log.Printf("Failed to parse due date for Taskwarrior UUID '%s': %v", taskUUID, err)
+			continue
+		}
+		taskDue := time.Unix(taskDueInt, 0)
+		taskDueDate := taskDue.Format(time.DateOnly)
+		taskDueDateTime, _ := time.Parse("2006-01-02", taskDueDate)
+		log.Printf("Processing Taskwarrior task UUID '%s' with project '%s', tags '%s', due '%s', and description '%s'", taskUUID, pTasksData[taskIndex].Project, pTasksData[taskIndex].Tags, taskDueDateTime.Format(time.RFC3339), pTasksData[taskIndex].Description)
+
+		gTaskNotes := ""
+		if pTasksData[taskIndex].Project != "" {
+			gTaskNotes += fmt.Sprintf("project=%s ", pTasksData[taskIndex].Project)
+		}
+		if pTasksData[taskIndex].Tags != "" {
+			if gTaskNotes == "" {
+				gTaskNotes += fmt.Sprintf("tags=%s", pTasksData[taskIndex].Tags)
+			} else {
+				gTaskNotes += fmt.Sprintf(" tags=%s", pTasksData[taskIndex].Tags)
+			}
+		}
+
+		gid, err := sqlite3Client.SearchGoogleTaskID(taskUUID)
+		if err != nil {
+			log.Printf("Failed to search Google Task ID for Taskwarrior UUID '%s': %v", taskUUID, err)
+			continue
+		}
+		if gid != "" {
+			// log.Printf("Taskwarrior UUID '%s' maps to Google Task ID '%s'", taskUUID, gid)
+			var googleTask *tasks.Task
+			for _, gTask := range s.GoogleTasks {
+				if gTask.Id == gid {
+					// log.Printf("Found matching Google Task with ID '%s' for Taskwarrior UUID '%s'", gid, taskUUID)
+					googleTask = gTask
+					break
+				}
+			}
+			if googleTask == nil {
+				log.Printf("No Google Task found with ID '%s' for Taskwarrior UUID '%s'", gid, taskUUID)
+				continue
+			}
+
+			// Getting only task date to compare as seems there is a bug on Google Task API
+			gTaskDue, err := time.Parse(time.RFC3339, googleTask.Due)
+			if err != nil {
+				log.Printf("Failed to parse google task due")
+			}
+			gTaskDueDate := gTaskDue.Format(time.DateOnly)
+
+			needsUpdate := false
+			reason := ""
+			if googleTask.Status != "needsAction" {
+				needsUpdate = true
+				reason = "status is different"
+			} else if googleTask.Title != pTasksData[taskIndex].Description {
+				needsUpdate = true
+				reason = "title is different"
+			} else if googleTask.Notes != gTaskNotes {
+				needsUpdate = true
+				reason = "notes is different"
+			} else if gTaskDueDate != taskDueDate {
+				// } else if googleTask.Due != taskDue.Format(time.RFC3339) {
+				needsUpdate = true
+				reason = "due is different"
+			}
+
+			if needsUpdate {
+				googleTask.Status = "needsAction"
+				googleTask.Title = pTasksData[taskIndex].Description
+				googleTask.Notes = gTaskNotes
+				googleTask.Due = taskDueDateTime.Format(time.RFC3339)
+				_, err = s.googleClient.UpdateTask(googleTask)
+				if err != nil {
+					log.Printf("Failed to update Google Task ID '%s' to 'needsAction' for Taskwarrior UUID '%s': %v", gid, taskUUID, err)
+					continue
+				}
+				log.Printf("Updated Google Task ID '%s' because %s for Taskwarrior UUID '%s'", gid, reason, taskUUID)
+			}
+		} else {
+			log.Printf("No Google Task mapping found for Taskwarrior UUID '%s'", taskUUID)
+			addTask := &tasks.Task{
+				Due:   taskDueDateTime.Format(time.RFC3339),
+				Notes: fmt.Sprintf("project=%s tags=%s", pTasksData[taskIndex].Project, pTasksData[taskIndex].Tags),
+				Title: pTasksData[taskIndex].Description,
+			}
+			addedTask, err := s.googleClient.AddTask(addTask)
+			if err != nil {
+				log.Printf("Failed to add Google Task for Taskwarrior UUID '%s': %v", taskUUID, err)
+				continue
+			}
+			log.Printf("Successfully added Google Task with ID '%s'", addedTask.Id)
+			sqlite3Client.InsertMapping(taskUUID, addedTask.Id)
+			log.Printf("Inserted mapping for Taskwarrior UUID '%s' and Google Task ID '%s'", taskUUID, addedTask.Id)
+		}
+	}
 
 	return nil
 

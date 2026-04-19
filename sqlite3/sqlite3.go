@@ -2,6 +2,7 @@ package sqlite3
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,13 @@ import (
 
 type SQLite3Client struct {
 	Db *sql.DB
+}
+
+type TaskData struct {
+	Project     string `json:"project"`
+	Tags        string `json:"tags"`
+	Due         string `json:"due"`
+	Description string `json:"description"`
 }
 
 func NewSQLite3Client(dbPath string) (*SQLite3Client, error) {
@@ -41,20 +49,46 @@ func NewSQLite3Client(dbPath string) (*SQLite3Client, error) {
 	return &SQLite3Client{Db: db}, nil
 }
 
-func (c *SQLite3Client) GetPendingTasks() ([]string, error) {
+func (c *SQLite3Client) GetPendingTasks() ([]string, []TaskData, error) {
 	rows, err := c.Db.Query("SELECT * FROM tasks WHERE json_extract(data, '$.status') = 'pending'")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var tasks []string
+	var tasksData []TaskData
 	for rows.Next() {
-		var task string
-		if err := rows.Scan(&task); err != nil {
-			return nil, err
+		var uuid string
+		var taskData string
+		var taskDataStruct TaskData
+		err := rows.Scan(&uuid, &taskData) // We only care about the uuid, so we can ignore the data column
+		if err != nil {
+			return nil, nil, err
 		}
-		tasks = append(tasks, task)
+		tasks = append(tasks, uuid)
+		err = json.Unmarshal([]byte(taskData), &taskDataStruct)
+		if err != nil {
+			log.Printf("Failed to unmarshal task data for UUID '%s': %v", uuid, err)
+			continue
+		}
+		tasksData = append(tasksData, taskDataStruct)
 	}
-	log.Print("Pending tasks found: ", len(tasks))
-	return tasks, nil
+	return tasks, tasksData, nil
+}
+
+func (c *SQLite3Client) SearchGoogleTaskID(taskWarriorUUID string) (string, error) {
+	var googleTaskID string
+	err := c.Db.QueryRow("SELECT gid FROM goTasksSync WHERE uuid = ?", taskWarriorUUID).Scan(&googleTaskID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil // No mapping found, return empty string
+		}
+		return "", err // Some other error occurred
+	}
+	return googleTaskID, nil
+}
+
+func (c *SQLite3Client) InsertMapping(taskWarriorUUID, googleTaskID string) error {
+	_, err := c.Db.Exec("INSERT INTO goTasksSync (uuid, gid) VALUES (?, ?)", taskWarriorUUID, googleTaskID)
+	return err
 }

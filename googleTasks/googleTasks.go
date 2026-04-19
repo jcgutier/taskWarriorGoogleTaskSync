@@ -128,6 +128,16 @@ func (c *GoogleTasksService) UpdateTask(task *tasks.Task) (*tasks.Task, error) {
 	return gTask, nil
 }
 
+func (c *GoogleTasksService) GetTaskByID(taskID string) (*tasks.Task, error) {
+	filter := c.Config.GoogleTaskListFilter
+	gTask, err := c.Service.Tasks.Get(filter, taskID).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task by ID '%s': %w", taskID, err)
+	}
+	return gTask, nil
+
+}
+
 func getClient(config *oauth2.Config, tokenFile string) *http.Client {
 	tok, err := tokenFromFile(tokenFile)
 	if err != nil {
