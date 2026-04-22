@@ -10,6 +10,7 @@ import (
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	for true {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -23,4 +24,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to sync tasks: %v", err)
 	}
+	
+}
 }

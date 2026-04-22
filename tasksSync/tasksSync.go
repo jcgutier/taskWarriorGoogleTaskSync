@@ -24,6 +24,7 @@ type TasksSync struct {
 func NewTasksSync(cfg *config.Config) (*TasksSync, error) {
 	googleTaskClient, err := googletasks.NewGoogleTasksClient(cfg)
 	if err != nil {
+		log.Printf("Failed to create google task client")
 		return nil, err
 	}
 	googleTasks, err := googleTaskClient.GetTasks(cfg.GoogleTaskListFilter)
