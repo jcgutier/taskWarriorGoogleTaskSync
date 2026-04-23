@@ -1,156 +1,70 @@
-# Plan: Run twgts as a Continuous Docker Container
+# TaskWarrior Google Tasks Sync (TWGTS) - Development Plan
 
-## Context
+This plan outlines the steps to transition the sync tool into a robust, containerized daemon with integrated monitoring and alerting, using SQLite as the primary data store.
 
-The sync logic in `twgts.go:SyncGoogleTasks()` is fully implemented but `main()` calls it once and exits. The Dockerfile and supervisord.conf already exist and are correctly configured for daemon use. The goal is to wire up a periodic loop, fix the missing Postgres env-var overrides, and complete the docker-compose file so the whole stack (Postgres + twgts) runs as a single `docker compose up`.
+## Status Legend
+- ` [ ] ` To Do
+- ` [/] ` In Progress
+- ` [x] ` Done
 
-## Issues Found
+## Phase 1: Foundation, Dockerization & Refactoring
+Focus on making the application a robust daemon and organizing the codebase for scale.
 
-1. **No daemon loop** — `main()` calls `SyncGoogleTasks(cfg)` once then exits (line 301).
-2. **Postgres config not env-overridable** — `config/config.go:applyEnvOverrides()` has no cases for `POSTGRES_HOST/PORT/USER/PASSWORD/DB`. Values only come from the JSON file, so the Compose container can't override `POSTGRES_HOST=postgres` via env.
-3. **docker-compose.yml missing twgts service** — only Postgres is defined.
-4. **`.env` key mismatch** — file uses `POSTGRES_DB=twgts` but `docker-compose.yml` references `${POSTGRES_DB_NAME}`, so Postgres container never reads the DB name correctly.
+### 1.1 Robust Daemon Loop ([/])
+Improve the main loop in `twgts.go` to handle signals and ensure clean execution.
+- ` [x] ` Basic periodic loop implemented.
+- ` [ ] ` Replace simple `time.Sleep` with `time.Ticker`.
+- ` [ ] ` Add graceful shutdown handling (SIGTERM/SIGINT).
+- ` [ ] ` Ensure first sync runs immediately on startup.
 
-## Changes
+### 1.2 Code Refactoring (DRY & Clean Code) ([ ])
+Break down the monolithic `Sync()` method in `tasksSync.go` for better maintainability.
+- ` [ ] ` Extract `syncTaskWarriorToGoogle()` logic.
+- ` [ ] ` Extract `syncGoogleToTaskWarrior()` logic.
+- ` [ ] ` Extract `processTaskMapping()` helper.
+- ` [ ] ` Consolidate SQLite3 operations to ensure consistent `defer close()` patterns.
 
-### 1. `config/config.go` — Add Postgres env overrides
+### 1.3 Dockerization ([ ])
+Optimize the container for daemon use and local deployment.
+- ` [ ] ` Update `docker-compose.yml` to run `twgts` as a standalone service (removing Postgres).
+- ` [ ] ` Configure volumes for `${GOOGLE_APPLICATION_CREDENTIALS}`, `${GOOGLE_TASKS_TOKEN_PATH}`, and the Taskwarrior SQLite database.
+- ` [ ] ` Ensure `taskwarrior` is correctly configured inside the container environment.
 
-Add to `applyEnvOverrides()` after the existing block:
+## Phase 2: Observability & Alerting
+Introduce monitoring and real-time error reporting.
 
-```go
-if val, ok := os.LookupEnv("POSTGRES_HOST"); ok && val != "" {
-    cfg.PostgresHost = val
-}
-if val, ok := os.LookupEnv("POSTGRES_PORT"); ok && val != "" {
-    if parsed, err := strconv.Atoi(val); err == nil {
-        cfg.PostgresPort = parsed
-    }
-}
-if val, ok := os.LookupEnv("POSTGRES_USER"); ok && val != "" {
-    cfg.PostgresUser = val
-}
-if val, ok := os.LookupEnv("POSTGRES_PASSWORD"); ok && val != "" {
-    cfg.PostgresPassword = val
-}
-if val, ok := os.LookupEnv("POSTGRES_DB_NAME"); ok && val != "" {
-    cfg.PostgresDBName = val
-}
-```
+### 2.1 Prometheus Metrics Implementation ([ ])
+- ` [ ] ` Create `internal/metrics` package.
+- ` [ ] ` Track `sync_duration_seconds` (Histogram).
+- ` [ ] ` Track `sync_errors_total` (Counter).
+- ` [ ] ` Track `tasks_synced_total` (Counter).
+- ` [ ] ` Expose `:9090/metrics` endpoint.
 
-Also add Postgres defaults to `defaultConfig()`:
-```go
-PostgresHost:     "localhost",
-PostgresPort:     5432,
-PostgresUser:     "twgts",
-PostgresPassword: "twgts_password",
-PostgresDBName:   "twgts",
-```
+### 2.2 Discord Alerting Integration ([ ])
+- ` [ ] ` Create `internal/alerts` package for Discord webhooks.
+- ` [ ] ` Implement throttled error reporting for critical failures.
 
-### 2. `twgts.go` — Replace `main()` with a daemon loop
+## Phase 3: Deployment & Refinement
+Finalize automation and process management.
 
-Replace lines 293–436 (the entire `main()` + commented-out dead code) with:
+### 3.1 Supervisor Optimization ([ ])
+- ` [ ] ` Enable HTTP server for `supervisorctl` in `supervisord.conf`.
+- ` [ ] ` Configure log rotation and ensure logs are directed to stdout/stderr.
 
-```go
-func main() {
-    log.SetFlags(log.LstdFlags | log.Lshortfile)
+### 3.2 Automation & Registry Integration ([ ])
+- ` [ ] ` Create `scripts/publish.sh` to tag and push the image to a local registry.
+- ` [ ] ` Optimize Dockerfile for minimal size (multi-stage build).
 
-    cfg, err := config.LoadConfig()
-    if err != nil {
-        log.Fatalf("Failed to load config: %v", err)
-    }
-
-    interval := time.Duration(cfg.SyncIntervalSeconds) * time.Second
-    log.Printf("Starting sync daemon (interval: %v)", interval)
-
-    // Run once immediately so the first sync isn't delayed.
-    SyncGoogleTasks(cfg)
-
-    ticker := time.NewTicker(interval)
-    defer ticker.Stop()
-
-    quit := make(chan os.Signal, 1)
-    signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-
-    for {
-        select {
-        case <-ticker.C:
-            SyncGoogleTasks(cfg)
-        case sig := <-quit:
-            log.Printf("Received signal %v, shutting down.", sig)
-            return
-        }
-    }
-}
-```
-
-Add `"os/signal"` and `"syscall"` to the import block (`"time"` is already imported).
-Keep the `addToTaskwarrior` helper below `main()` — it's used by tests.
-
-### 3. `docker-compose.yml` — Add twgts service
-
-Append to `services:` and add `taskwarrior_data` named volume:
-
-```yaml
-  twgts:
-    build: .
-    container_name: twgts-app
-    restart: unless-stopped
-    depends_on:
-      - postgres
-    env_file:
-      - .env
-    environment:
-      POSTGRES_HOST: postgres   # override .env; resolves via Docker internal DNS
-    volumes:
-      - ${GOOGLE_APPLICATION_CREDENTIALS}:/credentials/credentials.json:ro
-      - ${GOOGLE_TASKS_TOKEN_PATH:-/home/carlos/.shared_config/taskSync/token.json}:/credentials/token.json:ro
-      - taskwarrior_data:/root/.task
-    ports:
-      - "9090:9090"
-
-volumes:
-  pgdata:
-  taskwarrior_data:
-```
-
-### 4. `.env` — Fix key name and add missing vars
-
-Change `POSTGRES_DB` → `POSTGRES_DB_NAME` (fixes docker-compose.yml Postgres container), and add token path and interval:
-
-```
-POSTGRES_USER=twgts
-POSTGRES_PASSWORD=twgts_password
-POSTGRES_DB_NAME=twgts
-GOOGLE_APPLICATION_CREDENTIALS=/home/carlos/.shared_config/taskSync/credentials.json
-GOOGLE_TASKS_TOKEN_PATH=/home/carlos/.shared_config/taskSync/token.json
-SYNC_INTERVAL_SECONDS=300
-```
+---
 
 ## Pre-flight: Generate token.json (once, on host)
 
-The container can't do interactive OAuth. Generate the token on the host first:
+The container cannot perform interactive OAuth. Generate the token on the host first:
 
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=/home/carlos/.shared_config/taskSync/credentials.json \
-GOOGLE_TASKS_TOKEN_PATH=/home/carlos/.shared_config/taskSync/token.json \
-POSTGRES_HOST=localhost \
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json \
+GOOGLE_TASKS_TOKEN_PATH=/path/to/token.json \
   go run twgts.go
 ```
 
-This writes `token.json` at the path above; the container mounts it read-only thereafter.
-
-## Verification
-
-```bash
-# Build and start the full stack
-docker compose up -d
-
-# Tail logs — should see "Starting sync daemon" then sync output
-docker compose logs -f twgts
-
-# Confirm Postgres gets the mappings
-docker compose exec postgres psql -U twgts -d twgts -c "SELECT COUNT(*) FROM tasks;"
-
-# Test graceful shutdown
-docker compose stop twgts   # supervisord sends SIGTERM; should log "Received signal"
-```
+The container will then mount this `token.json` read-only.
