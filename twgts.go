@@ -25,6 +25,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to sync tasks: %v", err)
 		}
-		time.Sleep(20 * time.Second)
+		log.Println("Sleeping 1 hour")
+		time.Sleep(1 * time.Hour)
 	}
 }
