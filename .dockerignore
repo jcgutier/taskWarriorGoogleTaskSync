@@ -1,0 +1,12 @@
+.git
+.gitignore
+.dockerignore
+
+twgts
+*.test
+coverage.out
+
+.env
+credentials.json
+token.json
+config/config.json
