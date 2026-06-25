@@ -91,10 +91,7 @@ Los ciclos de trabajo son de 4 semanas (1 mes) por sprint.
 - La tarea sincronizada debe conservar título y fecha de vencimiento si la tiene.
 - No se deben crear duplicados aunque el ciclo de sync se ejecute varias veces.
 
-Puntos de la historia: 
-Sub-tareas:
-
-- Crear
+Puntos de la historia: 3
 
 ---
 
